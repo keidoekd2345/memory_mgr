@@ -22,7 +22,7 @@ int CHips_memmgr::unregiste(handle mem_handle)
     CHips_memmgr_mod & mod = mod_it->second;
 
     if(mod.m_mem_block_lst.size()>0)
-    {CHips_memmgr
+    {
         for (
                 memblock_lst::iterator block_it = mod.m_mem_block_lst.begin();
                 block_it != mod.m_mem_block_lst.end();
@@ -275,7 +275,7 @@ void CHips_memmgr::hips_memmgr_free(handle mem_handle, void * buffer, uint32 *pe
 {
 }
 
-int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT int* psize_in_bytes)
+int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_in_bytes)
 {
     string info="";
     stringstream outstream;

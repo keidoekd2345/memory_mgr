@@ -102,6 +102,7 @@ class CHips_memmgr
     
     int unregiste(handle mod_handle);
     void * hips_memmgr_malloc(handle mem_handle, size_t size, uint32 *perror = 0);
+
     void hips_memmgr_free(handle mem_handle, void * buffer, uint32 *perror = 0);
     /*
      pstr_buf: the character buffer to recieve the usage info, if the buffer is NULL,
@@ -112,7 +113,7 @@ class CHips_memmgr
              user can 
 
     */
-    int hips_memmgr_query_usage(char *pstr_buf, IN OUT int* psize_in_bytes);
+    int hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_in_bytes);
 
     ~CHips_memmgr();
     private:

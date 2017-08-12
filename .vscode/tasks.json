@@ -1,0 +1,56 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "0.1.0",
+    "taskSelector": "/t:",
+    "showOutput": "silent",
+    "tasks": [
+        {
+            "taskName": "build",
+            "command": "msbuild",
+            "args": [
+                    // Ask msbuild to generate full paths for file names.
+                    "/property:GenerateFullPaths=true"
+                    ],
+                // Show the output window only if unrecognized errors occur.
+            "showOutput": "silent",
+                // Use the standard MS compiler pattern to detect errors, warnings and infos
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "taskName": "clang++",
+            "command": "make",
+            "args": [],    // 编译命令参数
+            "problemMatcher": {
+                "owner": "cpp",
+                "fileLocation": ["relative", "${workspaceRoot}"],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5  
+                    }
+            }         
+
+        },
+        {
+            "taskName": "g++",
+            "command": "make",
+            "args": [],    // 编译命令参数
+            "problemMatcher": {
+                "owner": "cpp",
+                "fileLocation": ["relative", "${workspaceRoot}"],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5  
+                    }
+            }         
+        }
+    ]
+}
