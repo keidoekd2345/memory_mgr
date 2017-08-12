@@ -72,13 +72,13 @@ class CHips_memmgr_mod
     ~CHips_memmgr_mod();
     CHips_memmgr_mod &operator=( const CHips_memmgr_mod &robj );
     string get_name();
-    bool thread_lock();
-    bool thread_unlock();
+    bool mem_block_lock();
+    bool mem_block_unlock();
     handle m_handle;
     string m_mod_name;
     size_t m_max_memory_usage;
     size_t m_current_memory_usage;
-    CThread_mutex m_mutex;
+    CThread_mutex m_mem_block_mutex;
     memblock_lst m_mem_block_lst;
 };
 
@@ -104,6 +104,8 @@ class CHips_memmgr
     void * hips_memmgr_malloc(handle mem_handle, size_t size, uint32 *perror = 0);
 
     void hips_memmgr_free(handle mem_handle, void * buffer, uint32 *perror = 0);
+
+
     /*
      pstr_buf: the character buffer to recieve the usage info, if the buffer is NULL,
                 the function return really length of the buffer needed.
@@ -118,6 +120,9 @@ class CHips_memmgr
     ~CHips_memmgr();
     private:
     mod_map m_modules;
+    CThread_mutex m_module_mutex;
+    bool hips_memmgr_mod_lock();
+    bool hips_memmgr_mod_unlock();
 };
 
 #endif

@@ -9,16 +9,18 @@ using namespace std;
 
 CHips_memmgr::CHips_memmgr()
 {
-
+    m_module_mutex.init_mutex();
 }
 int CHips_memmgr::unregiste(handle mem_handle)
 {
     mod_map::iterator mod_it = this->m_modules.find( mem_handle );
     if(mod_it == this->m_modules.end())
     {
+        
         return INVALID_PARAMETER;
     }
 
+    this->hips_memmgr_mod_lock();
     CHips_memmgr_mod & mod = mod_it->second;
 
     if(mod.m_mem_block_lst.size()>0)
@@ -33,19 +35,30 @@ int CHips_memmgr::unregiste(handle mem_handle)
                 if(block.m_start_addr)
                 {
                     free(block.m_start_addr);
+                    block.m_start_addr = 0;
                     mod.m_current_memory_usage -= block.m_raw_size;
                 }
             }
         this->m_modules.erase(mod_it);
+        this->hips_memmgr_mod_unlock();
         return MEMBLOCK_FATAL_ERROR;
     }
     else
     {
+        this->hips_memmgr_mod_unlock();
         this->m_modules.erase(mod_it);
         return 0;
     }
-    
- 
+}
+
+bool CHips_memmgr::hips_memmgr_mod_lock()
+{
+    return this->m_module_mutex.lock_mutex();
+}
+
+bool CHips_memmgr::hips_memmgr_mod_unlock()
+{
+    return this->m_module_mutex.unlock_mutex();
 }
 /*
   str_mod_name: the name of the detection mod who will request memory block;
@@ -64,6 +77,7 @@ handle CHips_memmgr::registe(const string &str_mod_name, uint32 max_mem_usage, O
     }
     CHips_memmgr_mod new_mod;
 
+    this->hips_memmgr_mod_lock();
     while (1)
     {
         // if not any mod registed
@@ -82,6 +96,7 @@ handle CHips_memmgr::registe(const string &str_mod_name, uint32 max_mem_usage, O
                 mem_handle = it->first;
             if(perror)
                 *perror = 0;
+            this->hips_memmgr_mod_unlock();
             return mem_handle;
         }
 
@@ -113,24 +128,30 @@ handle CHips_memmgr::registe(const string &str_mod_name, uint32 max_mem_usage, O
         }
         break;
     }
+
     pair<mod_map::iterator, bool> ret =
         this->m_modules.insert(pair <handle, CHips_memmgr_mod> (mem_handle, new_mod));
+    
+    this->hips_memmgr_mod_unlock();
+    
     if (!ret.second)
     {
         //except event
     }
+
     if(perror)
         *perror = 0;
+
     return mem_handle;
 }
 
-bool CHips_memmgr_mod::thread_lock()
+bool CHips_memmgr_mod::mem_block_lock()
 {
-    return m_mutex.lock_mutex();
+    return m_mem_block_mutex.lock_mutex();
 }
-bool CHips_memmgr_mod::thread_unlock()
+bool CHips_memmgr_mod::mem_block_unlock()
 {
-    return m_mutex.unlock_mutex();
+    return m_mem_block_mutex.unlock_mutex();
 }
 void *CHips_memmgr::hips_memmgr_malloc(handle mem_handle, size_t size, OUT uint32 *perror )
 {
@@ -146,7 +167,7 @@ void *CHips_memmgr::hips_memmgr_malloc(handle mem_handle, size_t size, OUT uint3
         }
         else
         {
-            if(!mod_obj.thread_lock())
+            if(!mod_obj.mem_block_lock())
             {
                 if (perror)
                     *perror =MEMBLOCK_FATAL_ERROR;
@@ -196,7 +217,7 @@ void *CHips_memmgr::hips_memmgr_malloc(handle mem_handle, size_t size, OUT uint3
                     */
                     if (perror)
                         *perror = MEMBLOCK_FATAL_ERROR;
-                    mod_obj.thread_unlock();
+                    mod_obj.mem_block_unlock();
                     return 0;
                 }
                 else
@@ -205,7 +226,7 @@ void *CHips_memmgr::hips_memmgr_malloc(handle mem_handle, size_t size, OUT uint3
                         *perror = 0;
 
                     mod_obj.m_current_memory_usage += raw_size;
-                    mod_obj.thread_unlock();
+                    mod_obj.mem_block_unlock();
                     return mem_block.m_allocated_start_addr;
                 }
 
@@ -214,7 +235,7 @@ void *CHips_memmgr::hips_memmgr_malloc(handle mem_handle, size_t size, OUT uint3
             {
                 if (perror)
                     *perror = MEMBLOCK_FATAL_ERROR;
-                mod_obj.thread_unlock();
+                mod_obj.mem_block_unlock();
                 return 0;
             }
         }
@@ -234,7 +255,7 @@ void CHips_memmgr::hips_memmgr_free(handle mem_handle, void * buffer, uint32 *pe
     if (mod_it != this->m_modules.end())
     {
         CHips_memmgr_mod & mem_mod = mod_it->second;
-        mem_mod.thread_lock();
+        mem_mod.mem_block_lock();
         memblock_lst::iterator memblock_it = mem_mod.m_mem_block_lst.find((uint64)buffer);
        if (memblock_it != mem_mod.m_mem_block_lst.end())
         {
@@ -254,14 +275,14 @@ void CHips_memmgr::hips_memmgr_free(handle mem_handle, void * buffer, uint32 *pe
                 free(mem_block.m_start_addr);
                 mem_mod.m_current_memory_usage -= mem_block.m_size;
                 mem_mod.m_mem_block_lst.erase(memblock_it);
-                mem_mod.thread_unlock();
+                mem_mod.mem_block_unlock();
                 return;
         }
         else
         {
             if (perror)
                 *perror = INVALIDE_MEMBLOCK;
-            mem_mod.thread_unlock();
+            mem_mod.mem_block_unlock();
         }
     }
     else
@@ -328,7 +349,7 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
         m_handle = 0;
         m_mod_name = "";
         m_max_memory_usage = 0;
-        m_mutex.init_mutex();
+        m_mem_block_mutex.init_mutex();
     }
 
     CHips_memmgr_mod::CHips_memmgr_mod(handle mod_handle, string mod_name, size_t max_memory_usage):
@@ -336,7 +357,7 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
     m_mod_name(mod_name),
     m_max_memory_usage(max_memory_usage)
     {
-        m_mutex.init_mutex();
+        m_mem_block_mutex.init_mutex();
     }
 
     CHips_memmgr_mod::CHips_memmgr_mod(const CHips_memmgr_mod& obj)
@@ -344,12 +365,12 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
         m_handle = obj.m_handle;
         m_mod_name = obj.m_mod_name;
         m_max_memory_usage = obj.m_max_memory_usage;
-        m_mutex = obj.m_mutex;
+        m_mem_block_mutex = obj.m_mem_block_mutex;
     }
 
     CHips_memmgr_mod::~CHips_memmgr_mod()
     {
-        this->thread_lock();
+/*        this->mem_block_lock();
         for (memblock_lst::iterator block_it = m_mem_block_lst.begin(); 
              block_it != m_mem_block_lst.end();
              block_it ++
@@ -358,7 +379,8 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
                 CMem_block & mem_block = block_it->second;
                 free(mem_block.m_start_addr);
             }
-        this->thread_unlock();
+        this->mem_block_unlock();
+*/
     }
     CHips_memmgr_mod & CHips_memmgr_mod::operator=( const CHips_memmgr_mod &robj )
     {
@@ -368,7 +390,7 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
         this->m_handle = robj.m_handle;
         this->m_mod_name = robj.m_mod_name;
         this->m_max_memory_usage = robj.m_max_memory_usage;
-        this->m_mutex = robj.m_mutex;
+        this->m_mem_block_mutex = robj.m_mem_block_mutex;
         return *this;
     }
 
