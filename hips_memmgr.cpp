@@ -4,9 +4,9 @@
 #include <iostream>
 #include <string.h>
 #include "hips_memmgr.h"
-
+#include "hips_inter_mem.h"
 using namespace std;
-
+CHips_memmgr g_memmgr;
 CHips_memmgr::CHips_memmgr()
 {
     m_module_mutex.init_mutex();
@@ -41,7 +41,7 @@ int CHips_memmgr::unregiste(handle mem_handle)
             }
         this->m_modules.erase(mod_it);
         this->hips_memmgr_mod_unlock();
-        return MEMBLOCK_FATAL_ERROR;
+        return MEMBLOCK_LEAK_FOUND;
     }
     else
     {
@@ -93,11 +93,13 @@ handle CHips_memmgr::registe(const string &str_mod_name, uint32 max_mem_usage, O
         for (mod_map::iterator it = this->m_modules.begin(); it != this->m_modules.end(); it++)
         {
             if (it->second.get_name() == str_mod_name)
+            {
                 mem_handle = it->first;
-            if(perror)
-                *perror = 0;
-            this->hips_memmgr_mod_unlock();
-            return mem_handle;
+                if(perror)
+                    *perror = 0;
+                this->hips_memmgr_mod_unlock();
+                return mem_handle;
+            }
         }
 
         mod_map::iterator it = this->m_modules.begin();
@@ -273,7 +275,7 @@ void CHips_memmgr::hips_memmgr_free(handle mem_handle, void * buffer, uint32 *pe
                   
               }
                 free(mem_block.m_start_addr);
-                mem_mod.m_current_memory_usage -= mem_block.m_size;
+                mem_mod.m_current_memory_usage -= mem_block.m_raw_size;
                 mem_mod.m_mem_block_lst.erase(memblock_it);
                 mem_mod.mem_block_unlock();
                 return;
@@ -312,8 +314,8 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
         {
             CMem_block & block = mem_it->second; 
             outstream << "start addr:" << showbase << hex << (uint64) block.m_start_addr << ',';
-            outstream << "size:" << showbase << hex << block.m_size << ",";
-            outstream << "raw size:" << showbase << hex << block.m_raw_size << endl;
+            outstream << "size:" << dec << block.m_size << ",";
+            outstream << "raw size:" << block.m_raw_size << endl;
         }
         outstream << endl;
     }

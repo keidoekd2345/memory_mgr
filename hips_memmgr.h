@@ -19,14 +19,6 @@ using namespace std;
 #define OUT
 #define MEMORY_ALIGNMENT 8
 
-/*********error code *************/
-#define INVALID_PARAMETER  0x80000001
-#define UNKNOWN_MOD 0X80000002
-#define OVER_LIMIT  0X80000003
-#define INVALIDE_MEMBLOCK 0X80000004
-#define MEMBLOCK_OVERSTEP 0X80000005
-#define MEMBLOCK_FATAL_ERROR 0X80000006
-#define MEMBLOCK_LEAK_FOUND 0x80000007
 class CMem_block
 {
     public:
@@ -92,6 +84,8 @@ class CHips_memmgr
     *perror :output paramter, the pointer to receive error code, if not any error occured the  value is 0, 
     return :  the handle gen by hips_memmgr mode, if function faild the handle is 0 
     */
+
+
     handle registe(const string &str_mod_name, uint32 max_mem_usage, OUT uint32 *perror = 0);
     /*
       mod_handle: user call registe method and return the handle
@@ -99,7 +93,6 @@ class CHips_memmgr
                if the mod don't free all memory block, the return is MEMBLOCK_LEAK_FOUND
                other return 0;
     */
-    
     int unregiste(handle mod_handle);
     void * hips_memmgr_malloc(handle mem_handle, size_t size, uint32 *perror = 0);
 

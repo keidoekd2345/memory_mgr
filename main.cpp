@@ -16,11 +16,14 @@ CThread_mutex g_outlock;
 class CPara
 {
     public:
-    CPara(CHips_memmgr & mgr, string & name, CThread_mutex & mutex):m_mgr(mgr),m_mod_name(name),m_out_lock(mutex){};
-
+    CPara(CHips_memmgr & mgr, string & name, CThread_mutex & mutex):m_mgr(mgr),m_mod_name(name),m_out_lock(mutex)
+    {
+        m_hmemmgr = 0;
+    };
     CPara(const CPara & para ):m_mgr(para.m_mgr),m_out_lock(para.m_out_lock)
     {
         m_mod_name = para.m_mod_name;
+        m_hmemmgr = para.m_hmemmgr;
     }
 
     CPara & operator=(const CPara & left)
@@ -29,9 +32,11 @@ class CPara
             return *this;
         m_mgr = left.m_mgr;
         m_mod_name = left.m_mod_name;
+        m_hmemmgr = left.m_hmemmgr;
     }
     CHips_memmgr & m_mgr;
     string  m_mod_name;
+    handle  m_hmemmgr;
     CThread_mutex & m_out_lock;
 };
 class CTest_mem_block
@@ -45,10 +50,63 @@ class CTest_mem_block
     uint32 m_size;
 };
 
+#define ALLOCATE_SIZE 23
+#define THREAD_NUMBER 10
+void out_error(uint32 errorcode)
+{
+    g_outlock.lock_mutex();
+    switch(errorcode)
+    {
+        case INVALID_PARAMETER: cout<< "thread "<< this_thread::get_id() << " error:"<<"INVALID_PARAMETER"; break;
+        case UNKNOWN_MOD: cout<< "thread "<< this_thread::get_id() << " error:"<<"UNKNOWN_MOD"; break;
+        case OVER_LIMIT:cout<< "thread "<< this_thread::get_id() << " error:"<<"OVER_LIMIT"; break;
+        case INVALIDE_MEMBLOCK:cout<< "thread "<< this_thread::get_id() << " error:"<<"INVALIDE_MEMBLOCK"; break;
+        case MEMBLOCK_OVERSTEP:cout<< "thread "<< this_thread::get_id() << " error:"<<"MEMBLOCK_OVERSTEP"; break;
+        case MEMBLOCK_FATAL_ERROR :cout<< "thread "<< this_thread::get_id() << " error:"<<"MEMBLOCK_FATAL_ERROR"; break;
+        case MEMBLOCK_LEAK_FOUND: cout<< "thread "<< this_thread::get_id() << " error:"<<"MEMBLOCK_LEAK_FOUND"; break;
+        default:
+        break;
+    }
+    g_outlock.unlock_mutex();
+}
+void random_allocate_free_test(void * para)
+{
+    CPara *p =(CPara *) para;
+    while(!g_thread_exit)
+    {
+        size_t size= rand()%100;
+        uint32 errorcode;
+        void *pmem = p->m_mgr.hips_memmgr_malloc(p->m_hmemmgr, size, &errorcode);
+        if(errorcode)
+        {
+            out_error(errorcode);
+        }
+            
+
+        this_thread::sleep_for(chrono::milliseconds(size));
+
+        if(0)//if(size % 10 == 1)
+        {
+            *((dword *)((byte*)pmem+size))=0;
+        }
+        p->m_mgr.hips_memmgr_free(p->m_hmemmgr, pmem, &errorcode);
+        if(errorcode)
+        {
+            out_error(errorcode);
+        }
+            
+
+    }
+    
+}
 void test_memcont(void * para)
 {
     CPara * p = (CPara *) para;
-    vector<CTest_mem_block> mem_blocks; 
+    vector<CTest_mem_block> mem_blocks;
+    p->m_out_lock.lock_mutex();
+    cout<< "thread:" << this_thread::get_id() <<" started "<< endl;
+    p->m_out_lock.unlock_mutex();
+    uint32 msec = rand()%100;
     handle hmem = p->m_mgr.registe(p->m_mod_name, 1024*1024*500);
     if(hmem)
     {
@@ -62,19 +120,19 @@ void test_memcont(void * para)
         {
             uint32 errcode = 0;
 
-            void * pmem = p->m_mgr.hips_memmgr_malloc(hmem, 97, &errcode);
+            void * pmem = p->m_mgr.hips_memmgr_malloc(hmem, ALLOCATE_SIZE, &errcode);
             if(p)
             {
-                mem_blocks.push_back(CTest_mem_block(pmem, 97));
-                size_allocated+=97;
+                mem_blocks.push_back(CTest_mem_block(pmem, ALLOCATE_SIZE));
+                size_allocated+=ALLOCATE_SIZE;
             }
             else
             {
                 p->m_out_lock.lock_mutex();
-                cout<< "thread" << this_thread::get_id() <<"mem allocate failed with error code "<< errcode << endl;
+                cout<< "thread:" << this_thread::get_id() <<" mem allocate failed with error code "<< errcode << endl;
                 p->m_out_lock.unlock_mutex();
             }
-            uint32 msec = rand()%100; 
+            msec = rand()%100; 
             this_thread::sleep_for(chrono::milliseconds(msec));
         }
         p->m_out_lock.lock_mutex();
@@ -92,13 +150,17 @@ void test_memcont(void * para)
         for ( vector<CTest_mem_block>::iterator it  = mem_blocks.begin(); it != mem_blocks.end(); it++)
         {
             uint32 errcode =0;
-            if(count>=10)
+            //if(count>=10)
             {
                 p->m_mgr.hips_memmgr_free(hmem, it->m_point, &errcode);
+                if(errcode)
+                {
+                    p->m_out_lock.lock_mutex();
+                    cout<< "thread" << this_thread::get_id() <<"mem free failed with error code "<< errcode << endl;
+                    p->m_out_lock.unlock_mutex();                    
+                }
+
                 size_freed += it->m_size;
-                p->m_out_lock.lock_mutex();
-                cout<< "thread" << this_thread::get_id() <<"mem free failed with error code "<< errcode << endl;
-                p->m_out_lock.unlock_mutex();
 
             }
             count ++;
@@ -119,8 +181,6 @@ void test_memcont(void * para)
             cout<< "thread" << this_thread::get_id() <<"unregiste memory handle failed with error code "<< errcode << endl;
             p->m_out_lock.unlock_mutex();
         }
-            
-
     }
 
 }
@@ -130,22 +190,10 @@ int main(int argc, char *argv[])
     CHips_memmgr memmgr;
     vector <thread *> vecthread;
     vector <CPara *> vecpara;
+    
+    CPara * prandom_para = 0;
+    vector <thread *> vec_random_thread;
     g_outlock.init_mutex();
-    for (int i=0 ;i<1 ; i++)
-    {
-        stringstream modname;
-        modname <<"thread"<<i;
-        string str = modname.str();
-        CPara * ppara = new CPara(memmgr, str, g_outlock);
-        vecpara.push_back(ppara);
-    }
-
-    for(vector<CPara *>::iterator it = vecpara.begin(); it!= vecpara.end(); it++)
-    {
-        CPara* ppara = *it;
-        thread *p = new thread(test_memcont, ppara);
-        vecthread.push_back(p);
-    }
 
     while(1)
     {
@@ -168,6 +216,7 @@ int main(int argc, char *argv[])
                     delete p;
                     raw_size = 1024*1024;
                     p = new char [raw_size];
+                    memset(p, 0, 1024*1024);
                     size = raw_size;
                     raw_size = memmgr.hips_memmgr_query_usage(p, &size);
                     if(raw_size)
@@ -181,6 +230,7 @@ int main(int argc, char *argv[])
                         g_outlock.lock_mutex();
                         cout<<p<<endl;
                         g_outlock.unlock_mutex();
+                        delete p;
                     }
                 }
                 else
@@ -208,9 +258,37 @@ int main(int argc, char *argv[])
         }
         else if(strcmd == "allocate")
         {
+            
+            if(vecpara.size()>0)
+            {
+                g_outlock.lock_mutex();
+                cout<< "free and unregiste first!" << endl;
+                g_outlock.unlock_mutex();
+                continue;
+            }
+
+            for (int i=0 ;i<THREAD_NUMBER ; i++)
+            {
+                stringstream modname;
+                modname <<"thread"<<i;
+                string str = modname.str();
+                CPara * ppara = new CPara(memmgr, str, g_outlock);
+                vecpara.push_back(ppara);
+            }
+
+            for(vector<CPara *>::iterator it = vecpara.begin(); it!= vecpara.end(); it++)
+            {
+                CPara* ppara = *it;
+                thread *p = new thread(test_memcont, ppara);
+                vecthread.push_back(p);
+            }
+ 
             g_allocate = true;
+            g_free = false;
+            g_thread_exit = false;
             g_outlock.lock_mutex();
             cout<< "allocate cmd brodcasted" << endl;
+            g_outlock.unlock_mutex();
         }
         else if(strcmd == "unregiste")
         {
@@ -222,11 +300,53 @@ int main(int argc, char *argv[])
                 it != vecthread.end(); it++)
             {
                 (*it)->join();
+                delete (*it);
             }
+            vecthread.clear();
+
+            for(vector<CPara*>::iterator it = vecpara.begin(); it!= vecpara.end(); it++)
+            {
+                delete (*it);
+            }
+            vecpara.clear();
+            
+            for(vector <thread *>::iterator it = vec_random_thread.begin();
+                it!=vec_random_thread.end(); it++)
+                {
+                    (*it)->join();
+                    delete(*it);
+                }
+            vec_random_thread.clear();
+            delete prandom_para;
+
             g_outlock.lock_mutex();
             cout<<"all thread exited"<<endl;
             g_outlock.unlock_mutex();
+        }
+        else if(strcmd == "random")
+        {
+            if(vec_random_thread.size()>0)
+            {
+                g_outlock.lock_mutex();
+                cout<<" unregiste first"<<endl;
+                g_outlock.unlock_mutex();
+                continue;
+            }
 
+            vector<thread *> vectrandom;
+            uint32 errorcode=0;
+            handle hmem = memmgr.registe("random", 1024*1024*1024, &errorcode);
+            
+            if(errorcode)
+                out_error(errorcode);
+            string random_name = "random";
+            prandom_para = new CPara(memmgr, random_name, g_outlock);
+            prandom_para->m_hmemmgr = hmem;
+
+            for (int i=0; i<THREAD_NUMBER; i++)
+            {
+                vec_random_thread.push_back(new thread(random_allocate_free_test, prandom_para));
+            } 
         }
         else 
         {
