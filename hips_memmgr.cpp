@@ -103,9 +103,10 @@ handle CHips_memmgr::registe(const string &str_mod_name, uint32 max_mem_usage, O
         }
 
         mod_map::iterator it = this->m_modules.begin();
+        handle pre_handle =0;
         while (1)
         { // The aim of the the loop is to resuse the handle value which has been unregisted.
-            handle pre_handle = it->first;
+            pre_handle = it->first;
             it++;
             if (it != this->m_modules.end())
             {
@@ -124,7 +125,7 @@ handle CHips_memmgr::registe(const string &str_mod_name, uint32 max_mem_usage, O
         }
         if (it == this->m_modules.end())
         {
-            mem_handle = it->first + 1;
+            mem_handle = pre_handle + 1;
             CHips_memmgr_mod modobj = CHips_memmgr_mod(mem_handle, str_mod_name, max_mem_usage);
             new_mod = modobj;
         }
@@ -253,8 +254,13 @@ void *CHips_memmgr::hips_memmgr_malloc(handle mem_handle, size_t size, OUT uint3
 
 void CHips_memmgr::hips_memmgr_free(handle mem_handle, void * buffer, uint32 *perror)
 {
-    mod_map::iterator mod_it = this->m_modules.find(mem_handle);
-    if (mod_it != this->m_modules.end())
+    mem_handle = mem_handle;
+    //mod_map::iterator mod_it = this->m_modules.find(mem_handle);
+    if(perror)
+        *perror = 0;
+    this->hips_memmgr_mod_lock();
+
+    for (mod_map::iterator mod_it = this->m_modules.begin(); mod_it != this->m_modules.end(); mod_it++)
     {
         CHips_memmgr_mod & mem_mod = mod_it->second;
         mem_mod.mem_block_lock();
@@ -278,21 +284,22 @@ void CHips_memmgr::hips_memmgr_free(handle mem_handle, void * buffer, uint32 *pe
                 mem_mod.m_current_memory_usage -= mem_block.m_raw_size;
                 mem_mod.m_mem_block_lst.erase(memblock_it);
                 mem_mod.mem_block_unlock();
+                this->hips_memmgr_mod_unlock();
                 return;
         }
         else
         {
-            if (perror)
-                *perror = INVALIDE_MEMBLOCK;
             mem_mod.mem_block_unlock();
         }
     }
-    else
+
+    if (perror)
     {
-        if (perror)
-            *perror = UNKNOWN_MOD;
+        *perror = INVALIDE_MEMBLOCK;
     }
-    
+
+    this->hips_memmgr_mod_unlock();
+    return ;
 }
  CHips_memmgr::~CHips_memmgr()
 {
@@ -351,6 +358,7 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
         m_handle = 0;
         m_mod_name = "";
         m_max_memory_usage = 0;
+        m_current_memory_usage = 0;
         m_mem_block_mutex.init_mutex();
     }
 
@@ -359,6 +367,7 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
     m_mod_name(mod_name),
     m_max_memory_usage(max_memory_usage)
     {
+        m_current_memory_usage = 0;
         m_mem_block_mutex.init_mutex();
     }
 
@@ -368,6 +377,7 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
         m_mod_name = obj.m_mod_name;
         m_max_memory_usage = obj.m_max_memory_usage;
         m_mem_block_mutex = obj.m_mem_block_mutex;
+        m_current_memory_usage = obj.m_current_memory_usage;
     }
 
     CHips_memmgr_mod::~CHips_memmgr_mod()
@@ -393,6 +403,7 @@ int CHips_memmgr::hips_memmgr_query_usage(char *pstr_buf, IN OUT uint32* psize_i
         this->m_mod_name = robj.m_mod_name;
         this->m_max_memory_usage = robj.m_max_memory_usage;
         this->m_mem_block_mutex = robj.m_mem_block_mutex;
+        this->m_current_memory_usage = robj.m_current_memory_usage;
         return *this;
     }
 

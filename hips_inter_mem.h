@@ -1,12 +1,9 @@
 #ifndef __HIPS_INTER_MEM_H__
 #define __HIPS_INTER_MEM_H__
-/*********error code *************/
-#define INVALID_PARAMETER  0x80000001
-#define UNKNOWN_MOD 0X80000002
-#define OVER_LIMIT  0X80000003
-#define INVALIDE_MEMBLOCK 0X80000004
-#define MEMBLOCK_OVERSTEP 0X80000005
-#define MEMBLOCK_FATAL_ERROR 0X80000006
-#define MEMBLOCK_LEAK_FOUND 0x80000007
-
+//__attribute__((constructor)) ()
+#define MAX_MOD_MEM_USAGE 1024*1024*500
+unsigned int hips_i_mem_registe(const char * str_mod_name, unsigned int max_mem_usage);
+unsigned int hips_i_mem_unregiste(unsigned int hhandle);
+void * hips_i_mem_malloc(unsigned int mem_handle, size_t size);
+void hips_i_mem_free(void * buffer);
 #endif

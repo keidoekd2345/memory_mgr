@@ -7,7 +7,7 @@
 #include <time.h>
 #include "tinythread.h"
 #include "hips_memmgr.h"
-
+#include "hips_inter_mem.h"
 using namespace tthread;
 bool g_thread_exit = false;
 bool g_free = false;
@@ -52,19 +52,35 @@ class CTest_mem_block
 
 #define ALLOCATE_SIZE 23
 #define THREAD_NUMBER 10
+#define RANDOM_THREAD_NUMBER 10
 void out_error(uint32 errorcode)
 {
     g_outlock.lock_mutex();
     switch(errorcode)
     {
-        case INVALID_PARAMETER: cout<< "thread "<< this_thread::get_id() << " error:"<<"INVALID_PARAMETER"; break;
-        case UNKNOWN_MOD: cout<< "thread "<< this_thread::get_id() << " error:"<<"UNKNOWN_MOD"; break;
-        case OVER_LIMIT:cout<< "thread "<< this_thread::get_id() << " error:"<<"OVER_LIMIT"; break;
-        case INVALIDE_MEMBLOCK:cout<< "thread "<< this_thread::get_id() << " error:"<<"INVALIDE_MEMBLOCK"; break;
-        case MEMBLOCK_OVERSTEP:cout<< "thread "<< this_thread::get_id() << " error:"<<"MEMBLOCK_OVERSTEP"; break;
-        case MEMBLOCK_FATAL_ERROR :cout<< "thread "<< this_thread::get_id() << " error:"<<"MEMBLOCK_FATAL_ERROR"; break;
-        case MEMBLOCK_LEAK_FOUND: cout<< "thread "<< this_thread::get_id() << " error:"<<"MEMBLOCK_LEAK_FOUND"; break;
+        case INVALID_PARAMETER: 
+        cout<< "thread "<< this_thread::get_id() << " error:"<<"INVALID_PARAMETER"<<endl; 
+        break;
+        case UNKNOWN_MOD:
+         cout<< "thread "<< this_thread::get_id() << " error:"<<"UNKNOWN_MOD" << endl; 
+         break;
+        case OVER_LIMIT: 
+        cout<< "thread "<< this_thread::get_id() << " error:"<<"OVER_LIMIT"<< endl; 
+        break;
+        case INVALIDE_MEMBLOCK:
+        cout<< "thread "<< this_thread::get_id() << " error:"<<"INVALIDE_MEMBLOCK" << endl; 
+        break;
+        case MEMBLOCK_OVERSTEP:
+        cout<< "thread "<< this_thread::get_id() << " error:"<<"MEMBLOCK_OVERSTEP"<< endl;
+         break;
+        case MEMBLOCK_FATAL_ERROR:
+        cout<< "thread "<< this_thread::get_id() << " error:"<<"MEMBLOCK_FATAL_ERROR"<< endl; 
+        break;
+        case MEMBLOCK_LEAK_FOUND: 
+        cout<< "thread "<< this_thread::get_id() << " error:"<<"MEMBLOCK_LEAK_FOUND"<< endl; 
+        break;
         default:
+        cout<< "unkonw error"<<endl;
         break;
     }
     g_outlock.unlock_mutex();
@@ -94,8 +110,6 @@ void random_allocate_free_test(void * para)
         {
             out_error(errorcode);
         }
-            
-
     }
     
 }
@@ -108,6 +122,7 @@ void test_memcont(void * para)
     p->m_out_lock.unlock_mutex();
     uint32 msec = rand()%100;
     handle hmem = p->m_mgr.registe(p->m_mod_name, 1024*1024*500);
+
     if(hmem)
     {
         uint32 size_allocated=0;
@@ -116,11 +131,29 @@ void test_memcont(void * para)
             this_thread::sleep_for(chrono::seconds(1));
         }
             
+        if(hmem == 2)
+        {
+            p->m_mgr.unregiste(hmem);
+                
+            while(!g_thread_exit)
+                this_thread::sleep_for(chrono::seconds(1));
+
+            return; 
+        }
+
         for (int i = 0; i<20;i++)
         {
             uint32 errcode = 0;
 
             void * pmem = p->m_mgr.hips_memmgr_malloc(hmem, ALLOCATE_SIZE, &errcode);
+            if(i == 1)
+            {
+                *((dword *)(((byte *)pmem)+ALLOCATE_SIZE)) = 0 ;
+            }
+            if(i == 2)
+            {
+                *((dword *)(((byte *)pmem)-4)) = 0 ;
+            }
             if(p)
             {
                 mem_blocks.push_back(CTest_mem_block(pmem, ALLOCATE_SIZE));
@@ -128,9 +161,7 @@ void test_memcont(void * para)
             }
             else
             {
-                p->m_out_lock.lock_mutex();
-                cout<< "thread:" << this_thread::get_id() <<" mem allocate failed with error code "<< errcode << endl;
-                p->m_out_lock.unlock_mutex();
+                out_error(errcode);
             }
             msec = rand()%100; 
             this_thread::sleep_for(chrono::milliseconds(msec));
@@ -155,9 +186,7 @@ void test_memcont(void * para)
                 p->m_mgr.hips_memmgr_free(hmem, it->m_point, &errcode);
                 if(errcode)
                 {
-                    p->m_out_lock.lock_mutex();
-                    cout<< "thread" << this_thread::get_id() <<"mem free failed with error code "<< errcode << endl;
-                    p->m_out_lock.unlock_mutex();                    
+                    out_error(errcode);
                 }
 
                 size_freed += it->m_size;
@@ -177,9 +206,7 @@ void test_memcont(void * para)
 
         if(errcode)
         {
-            p->m_out_lock.lock_mutex();
-            cout<< "thread" << this_thread::get_id() <<"unregiste memory handle failed with error code "<< errcode << endl;
-            p->m_out_lock.unlock_mutex();
+            out_error(errcode);
         }
     }
 
@@ -187,6 +214,7 @@ void test_memcont(void * para)
 
 int main(int argc, char *argv[])
 {
+    handle g_hrandom_mem = 0;
     CHips_memmgr memmgr;
     vector <thread *> vecthread;
     vector <CPara *> vecpara;
@@ -312,11 +340,12 @@ int main(int argc, char *argv[])
             
             for(vector <thread *>::iterator it = vec_random_thread.begin();
                 it!=vec_random_thread.end(); it++)
-                {
+            {
                     (*it)->join();
                     delete(*it);
-                }
+            }
             vec_random_thread.clear();
+            memmgr.unregiste(g_hrandom_mem);
             delete prandom_para;
 
             g_outlock.lock_mutex();
@@ -335,15 +364,16 @@ int main(int argc, char *argv[])
 
             vector<thread *> vectrandom;
             uint32 errorcode=0;
-            handle hmem = memmgr.registe("random", 1024*1024*1024, &errorcode);
+            g_hrandom_mem = memmgr.registe("random", 1024*1024*1024, &errorcode);
             
             if(errorcode)
                 out_error(errorcode);
             string random_name = "random";
             prandom_para = new CPara(memmgr, random_name, g_outlock);
-            prandom_para->m_hmemmgr = hmem;
+            prandom_para->m_hmemmgr = g_hrandom_mem;
 
-            for (int i=0; i<THREAD_NUMBER; i++)
+            //random_allocate_free_test(prandom_para);
+            for (int i=0; i<RANDOM_THREAD_NUMBER; i++)
             {
                 vec_random_thread.push_back(new thread(random_allocate_free_test, prandom_para));
             } 
