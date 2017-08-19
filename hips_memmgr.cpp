@@ -6,7 +6,6 @@
 #include "hips_memmgr.h"
 #include "hips_inter_mem.h"
 using namespace std;
-CHips_memmgr g_memmgr;
 CHips_memmgr::CHips_memmgr()
 {
     m_module_mutex.init_mutex();

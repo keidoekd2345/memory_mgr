@@ -7,20 +7,65 @@
 #include <time.h>
 #include "tinythread.h"
 //#include "hips_memmgr.h"
-#include "hips_inter_mem.h"
+//#include "threadobj.h"
+//#include ".../hips_inter_mem.h"
+#include "fast_mutex.h"
+#include <dlfcn.h> 
 using namespace tthread;
+using namespace std;
 bool g_thread_exit = false;
 bool g_free = false;
 bool g_allocate = false;
-CThread_mutex g_outlock;
+
+typedef unsigned int (*pfunc_hips_i_mem_registe)(const char * str_mod_name, unsigned int max_mem_usage);
+typedef unsigned int (*pfunc_hips_i_mem_unregiste)(unsigned int hhandle);
+typedef void * (*pfunc_hips_i_mem_malloc)(unsigned int mem_handle, size_t size);
+typedef void (*pfunc_hips_i_mem_free)(void * buffer);
+typedef unsigned int (*pfunc_hips_i_mem_query_usage)(char *pstr_buf, unsigned int * psize_in_bytes);
+
+pfunc_hips_i_mem_registe hips_i_mem_registe = 0;
+pfunc_hips_i_mem_unregiste hips_i_mem_unregiste = 0;
+pfunc_hips_i_mem_malloc hips_i_mem_malloc = 0;
+pfunc_hips_i_mem_free hips_i_mem_free = 0;
+pfunc_hips_i_mem_query_usage hips_i_mem_query_usage = 0;
+void *hso = 0;
+
+bool init_so()
+{
+    hso = dlopen("../libmemmgr.so",RTLD_NOW);
+    if(hso)
+    {
+       hips_i_mem_registe = (pfunc_hips_i_mem_registe)dlsym(hso, "hips_i_mem_registe");
+       hips_i_mem_unregiste = (pfunc_hips_i_mem_unregiste)dlsym(hso, "hips_i_mem_unregiste");
+       hips_i_mem_malloc =  (pfunc_hips_i_mem_malloc)dlsym(hso, "hips_i_mem_malloc");
+       hips_i_mem_free = (pfunc_hips_i_mem_free)dlsym(hso, "hips_i_mem_free");
+       hips_i_mem_query_usage = (pfunc_hips_i_mem_query_usage)dlsym(hso, "hips_i_mem_query_usage");
+       if(hips_i_mem_free && hips_i_mem_malloc && hips_i_mem_registe && hips_i_mem_unregiste && hips_i_mem_query_usage)
+       {
+           return true;
+       }
+       else
+       {
+           dlclose(hso);
+           return false;
+       }
+    }
+};
+bool uninit_so()
+{
+    if(hso)
+        dlclose(hso);
+}
+
+fast_mutex g_outlock;
 class CPara
 {
     public:
-    CPara(CHips_memmgr & mgr, string & name, CThread_mutex & mutex):m_mgr(mgr),m_mod_name(name),m_out_lock(mutex)
+    CPara( string & name, fast_mutex & mutex):m_mod_name(name),m_out_lock(mutex)
     {
         m_hmemmgr = 0;
     };
-    CPara(const CPara & para ):m_mgr(para.m_mgr),m_out_lock(para.m_out_lock)
+    CPara(const CPara & para ):m_out_lock(para.m_out_lock)
     {
         m_mod_name = para.m_mod_name;
         m_hmemmgr = para.m_hmemmgr;
@@ -30,31 +75,30 @@ class CPara
     {
         if(this == &left)
             return *this;
-        m_mgr = left.m_mgr;
         m_mod_name = left.m_mod_name;
         m_hmemmgr = left.m_hmemmgr;
     }
     string  m_mod_name;
-    handle  m_hmemmgr;
-    CThread_mutex & m_out_lock;
+    unsigned int  m_hmemmgr;
+    fast_mutex & m_out_lock;
 };
 class CTest_mem_block
 {
     public:
-    CTest_mem_block(void* p, uint32 size ):m_point(p),m_size(size)
+    CTest_mem_block(void* p, unsigned int size ):m_point(p),m_size(size)
     {
 
     };
     void *m_point;
-    uint32 m_size;
+    unsigned int m_size;
 };
 
 #define ALLOCATE_SIZE 23
 #define THREAD_NUMBER 10
 #define RANDOM_THREAD_NUMBER 10
-void out_error(uint32 errorcode)
+void out_error(unsigned int errorcode)
 {
-    g_outlock.lock_mutex();
+/*    g_outlock.lock();
     switch(errorcode)
     {
         case INVALID_PARAMETER: 
@@ -82,7 +126,7 @@ void out_error(uint32 errorcode)
         cout<< "unkonw error"<<endl;
         break;
     }
-    g_outlock.unlock_mutex();
+    g_outlock.unlock();*/
 }
 void random_allocate_free_test(void * para)
 {
@@ -90,8 +134,8 @@ void random_allocate_free_test(void * para)
     while(!g_thread_exit)
     {
         size_t size= rand()%100;
-        uint32 errorcode;
-        void *pmem = p->m_mgr.hips_memmgr_malloc(p->m_hmemmgr, size, &errorcode);
+        unsigned int errorcode =0;
+        void *pmem = hips_i_mem_malloc(p->m_hmemmgr, size);
         if(errorcode)
         {
             out_error(errorcode);
@@ -102,9 +146,9 @@ void random_allocate_free_test(void * para)
 
         if(0)//if(size % 10 == 1)
         {
-            *((dword *)((byte*)pmem+size))=0;
+            *((unsigned int *)((unsigned char *)pmem+size))=0;
         }
-        p->m_mgr.hips_memmgr_free(p->m_hmemmgr, pmem, &errorcode);
+        hips_i_mem_free( pmem);
         if(errorcode)
         {
             out_error(errorcode);
@@ -116,15 +160,15 @@ void test_memcont(void * para)
 {
     CPara * p = (CPara *) para;
     vector<CTest_mem_block> mem_blocks;
-    p->m_out_lock.lock_mutex();
+    p->m_out_lock.lock();
     cout<< "thread:" << this_thread::get_id() <<" started "<< endl;
-    p->m_out_lock.unlock_mutex();
-    uint32 msec = rand()%100;
-    handle hmem = p->m_mgr.registe(p->m_mod_name, 1024*1024*500);
+    p->m_out_lock.unlock();
+    unsigned int  msec = rand()%100;
+    unsigned int hmem = hips_i_mem_registe(p->m_mod_name.c_str(), 1024*1024*500);
 
     if(hmem)
     {
-        uint32 size_allocated=0;
+        unsigned int size_allocated=0;
         while(!g_allocate)
         {
             this_thread::sleep_for(chrono::seconds(1));
@@ -132,7 +176,7 @@ void test_memcont(void * para)
             
         if(hmem == 2)
         {
-            p->m_mgr.unregiste(hmem);
+            hips_i_mem_unregiste(hmem);
                 
             while(!g_thread_exit)
                 this_thread::sleep_for(chrono::seconds(1));
@@ -142,16 +186,16 @@ void test_memcont(void * para)
 
         for (int i = 0; i<20;i++)
         {
-            uint32 errcode = 0;
+            unsigned int errcode = 0;
 
-            void * pmem = p->m_mgr.hips_memmgr_malloc(hmem, ALLOCATE_SIZE, &errcode);
+            void * pmem  = hips_i_mem_malloc(hmem, ALLOCATE_SIZE);
             if(i == 1)
             {
-                *((dword *)(((byte *)pmem)+ALLOCATE_SIZE)) = 0 ;
+                *((unsigned int *)(((unsigned char *)pmem)+ALLOCATE_SIZE)) = 0 ;
             }
             if(i == 2)
             {
-                *((dword *)(((byte *)pmem)-4)) = 0 ;
+                *((unsigned int *)(((unsigned char *)pmem)-4)) = 0 ;
             }
             if(p)
             {
@@ -165,9 +209,9 @@ void test_memcont(void * para)
             msec = rand()%100; 
             this_thread::sleep_for(chrono::milliseconds(msec));
         }
-        p->m_out_lock.lock_mutex();
+        p->m_out_lock.lock();
         cout<<"thread "<< this_thread::get_id()<<" "<< hex << size_allocated << "  memory has allocated "<< endl;
-        p->m_out_lock.unlock_mutex();
+        p->m_out_lock.unlock();
 
 
         while(!g_free)
@@ -176,13 +220,13 @@ void test_memcont(void * para)
         }
 
         int count = 0;
-        uint32 size_freed = 0;
+        unsigned int size_freed = 0;
         for ( vector<CTest_mem_block>::iterator it  = mem_blocks.begin(); it != mem_blocks.end(); it++)
         {
-            uint32 errcode =0;
+            unsigned int errcode =0;
             //if(count>=10)
             {
-                p->m_mgr.hips_memmgr_free(hmem, it->m_point, &errcode);
+                hips_i_mem_free(it->m_point);
                 if(errcode)
                 {
                     out_error(errcode);
@@ -194,14 +238,14 @@ void test_memcont(void * para)
             count ++;
         }
         
-        p->m_out_lock.lock_mutex();
+        p->m_out_lock.lock();
         cout<<"thread "<< this_thread::get_id()<< " " << hex << size_freed <<" memory has freed "<< endl;
-        p->m_out_lock.unlock_mutex();
+        p->m_out_lock.unlock();
 
         while(!g_thread_exit)
             this_thread::sleep_for(chrono::seconds(1));
         
-        int errcode = p->m_mgr.unregiste(hmem);
+        int errcode = hips_i_mem_unregiste(hmem);
 
         if(errcode)
         {
@@ -213,15 +257,14 @@ void test_memcont(void * para)
 
 int main(int argc, char *argv[])
 {
-    handle g_hrandom_mem = 0;
+    unsigned int g_hrandom_mem = 0;
     //CHips_memmgr memmgr;
     vector <thread *> vecthread;
     vector <CPara *> vecpara;
     
     CPara * prandom_para = 0;
     vector <thread *> vec_random_thread;
-    g_outlock.init_mutex();
-
+    init_so();
     while(1)
     {
         char inputstr[20];
@@ -230,14 +273,14 @@ int main(int argc, char *argv[])
         if(strcmd=="usage")
         {
             char * p  = 0;
-            uint32 size = 0;
-            uint32 raw_size = 0;
-            raw_size = memmgr.hips_memmgr_query_usage(0, &size);
+            unsigned int size = 0;
+            unsigned int raw_size = 0;
+            raw_size = hips_i_mem_query_usage(0, &size);
             if(raw_size > 0)
             {
                 p = new char [raw_size -2];
                 size = raw_size - 2;
-                raw_size = memmgr.hips_memmgr_query_usage(p, &size);
+                raw_size = hips_i_mem_query_usage(p, &size);
                 if(raw_size>0)
                 {
                     delete p;
@@ -245,42 +288,42 @@ int main(int argc, char *argv[])
                     p = new char [raw_size];
                     memset(p, 0, 1024*1024);
                     size = raw_size;
-                    raw_size = memmgr.hips_memmgr_query_usage(p, &size);
+                    raw_size = hips_i_mem_query_usage(p, &size);
                     if(raw_size)
                     {
-                        g_outlock.lock_mutex();
+                        g_outlock.lock();
                         cout << "query usage return a wrong value while the input buffer is enought to receive all information" << endl;
-                        g_outlock.unlock_mutex();
+                        g_outlock.unlock();
                     }
                     else
                     {
-                        g_outlock.lock_mutex();
+                        g_outlock.lock();
                         cout<<p<<endl;
-                        g_outlock.unlock_mutex();
+                        g_outlock.unlock();
                         delete p;
                     }
                 }
                 else
                 {
-                    g_outlock.lock_mutex();
+                    g_outlock.lock();
                     cout << "queyr usage return a wrong value while the input buffer size less than real size" << endl;
-                    g_outlock.unlock_mutex();
+                    g_outlock.unlock();
                 }
             }
             else
             {
-                g_outlock.lock_mutex();
+                g_outlock.lock();
                 cout << "query usage return a wrong value while the input buffer size is zero"<<endl;
-                g_outlock.unlock_mutex();
+                g_outlock.unlock();
             }
             
         }
         else if(strcmd == "free")
         {
             g_free = true;
-            g_outlock.lock_mutex();
+            g_outlock.lock();
             cout<<"free cmd brodcasted" << endl;
-            g_outlock.unlock_mutex();
+            g_outlock.unlock();
 
         }
         else if(strcmd == "allocate")
@@ -288,9 +331,9 @@ int main(int argc, char *argv[])
             
             if(vecpara.size()>0)
             {
-                g_outlock.lock_mutex();
+                g_outlock.lock();
                 cout<< "free and unregiste first!" << endl;
-                g_outlock.unlock_mutex();
+                g_outlock.unlock();
                 continue;
             }
 
@@ -299,7 +342,7 @@ int main(int argc, char *argv[])
                 stringstream modname;
                 modname <<"thread"<<i;
                 string str = modname.str();
-                CPara * ppara = new CPara(memmgr, str, g_outlock);
+                CPara * ppara = new CPara(str, g_outlock);
                 vecpara.push_back(ppara);
             }
 
@@ -313,16 +356,16 @@ int main(int argc, char *argv[])
             g_allocate = true;
             g_free = false;
             g_thread_exit = false;
-            g_outlock.lock_mutex();
+            g_outlock.lock();
             cout<< "allocate cmd brodcasted" << endl;
-            g_outlock.unlock_mutex();
+            g_outlock.unlock();
         }
         else if(strcmd == "unregiste")
         {
             g_thread_exit = true;
-            g_outlock.lock_mutex();
+            g_outlock.lock();
             cout<<"unregiste cmd brodcasted"<<endl;
-            g_outlock.unlock_mutex();
+            g_outlock.unlock();
             for(vector<thread *>::iterator it  = vecthread.begin(); 
                 it != vecthread.end(); it++)
             {
@@ -344,31 +387,31 @@ int main(int argc, char *argv[])
                     delete(*it);
             }
             vec_random_thread.clear();
-            memmgr.unregiste(g_hrandom_mem);
+            hips_i_mem_unregiste(g_hrandom_mem);
             delete prandom_para;
 
-            g_outlock.lock_mutex();
+            g_outlock.lock();
             cout<<"all thread exited"<<endl;
-            g_outlock.unlock_mutex();
+            g_outlock.unlock();
         }
         else if(strcmd == "random")
         {
             if(vec_random_thread.size()>0)
             {
-                g_outlock.lock_mutex();
+                g_outlock.lock();
                 cout<<" unregiste first"<<endl;
-                g_outlock.unlock_mutex();
+                g_outlock.unlock();
                 continue;
             }
 
             vector<thread *> vectrandom;
-            uint32 errorcode=0;
-            g_hrandom_mem = memmgr.registe("random", 1024*1024*1024, &errorcode);
+            unsigned int errorcode=0;
+            g_hrandom_mem = hips_i_mem_registe("random", 1024*1024*1024);
             
             if(errorcode)
                 out_error(errorcode);
             string random_name = "random";
-            prandom_para = new CPara(memmgr, random_name, g_outlock);
+            prandom_para = new CPara(random_name, g_outlock);
             prandom_para->m_hmemmgr = g_hrandom_mem;
 
             //random_allocate_free_test(prandom_para);
@@ -379,9 +422,9 @@ int main(int argc, char *argv[])
         }
         else 
         {
-            g_outlock.lock_mutex();
+            g_outlock.lock();
             cout << "unknow cmd, input again"<<endl;
-            g_outlock.unlock_mutex();
+            g_outlock.unlock();
         }
     }
     
