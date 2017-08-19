@@ -242,6 +242,9 @@ void test_memcont(void * para)
         }
     }
 
+    p->m_out_lock.lock();
+    cout<<"thread "<< this_thread::get_id()<< " memory has freed "<< endl;
+    p->m_out_lock.unlock();
 }
 
 int main(int argc, char *argv[])
