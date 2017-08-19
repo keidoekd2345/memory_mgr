@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "tinythread.h"
-#include "hips_memmgr.h"
+//#include "hips_memmgr.h"
 #include "hips_inter_mem.h"
 using namespace tthread;
 bool g_thread_exit = false;
@@ -34,7 +34,6 @@ class CPara
         m_mod_name = left.m_mod_name;
         m_hmemmgr = left.m_hmemmgr;
     }
-    CHips_memmgr & m_mgr;
     string  m_mod_name;
     handle  m_hmemmgr;
     CThread_mutex & m_out_lock;
@@ -215,7 +214,7 @@ void test_memcont(void * para)
 int main(int argc, char *argv[])
 {
     handle g_hrandom_mem = 0;
-    CHips_memmgr memmgr;
+    //CHips_memmgr memmgr;
     vector <thread *> vecthread;
     vector <CPara *> vecpara;
     

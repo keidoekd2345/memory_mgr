@@ -14,7 +14,7 @@ unsigned int hips_i_mem_unregiste(unsigned int hhandle)
 {
     if(hhandle)
     {
-        g_mem_mgr.unregiste(hhandle);
+        return !g_mem_mgr.unregiste(hhandle);
     }
     else
     {
@@ -41,4 +41,9 @@ void hips_i_mem_free(void * buffer)
         g_mem_mgr.hips_memmgr_free(0, buffer);
     }
     return;
+}
+
+unsigned int hips_i_mem_query_usage(char *pstr_buf, IN OUT uint32* psize_in_bytes)
+{
+   return g_mem_mgr.hips_memmgr_query_usage(pstr_buf, psize_in_bytes);
 }

@@ -6,4 +6,5 @@ unsigned int hips_i_mem_registe(const char * str_mod_name, unsigned int max_mem_
 unsigned int hips_i_mem_unregiste(unsigned int hhandle);
 void * hips_i_mem_malloc(unsigned int mem_handle, size_t size);
 void hips_i_mem_free(void * buffer);
+unsigned int hips_i_mem_query_usage(char *pstr_buf, unsigned int * psize_in_bytes);
 #endif
