@@ -173,17 +173,6 @@ void test_memcont(void * para)
         {
             this_thread::sleep_for(chrono::seconds(1));
         }
-            
-        if(hmem == 2)
-        {
-            hips_i_mem_unregiste(hmem);
-                
-            while(!g_thread_exit)
-                this_thread::sleep_for(chrono::seconds(1));
-
-            return; 
-        }
-
         for (int i = 0; i<20;i++)
         {
             unsigned int errcode = 0;
